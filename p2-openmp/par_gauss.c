@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <omp.h>
 
 // custom timing macros
 #include "timer.h"
@@ -129,7 +130,15 @@ void read_system(const char *fn)
  */
 void gaussian_elimination()
 {
+    // Outer loop is pivot selection, ie iterating over each column
+    // Inherently sequential since each step depends on last
     for (int pivot = 0; pivot < n; pivot++) {
+        // Loop in one indentation level iterates over the rows below the pivot
+        // As pivot increases the remaining number of rows decreases, dynamic scheduling would allow for work load split, potentially specify block size (4?)
+        // Since the coefficient computation and updating the matrix is independent from other rows parallel for works here
+        // Each thread needs to be working on their own row, coeff, and col but they all need to be able to access
+        // the matrix A, row b?, the pivot col, and n
+        #pragma omp parallel for default(none) shared(A, b, n, pivot) private(row, coeff, col) schedule(dynamic) 
         for (int row = pivot+1; row < n; row++) {
             REAL coeff = A[row*n + pivot] / A[pivot*n + pivot];
             A[row*n + pivot] = 0.0;
@@ -148,8 +157,15 @@ void gaussian_elimination()
 void back_substitution_row()
 {
     REAL tmp;
+    // The outer loop works its way up through the matrix and introduces a loop-carried dependency
+    // Inherently sequential
     for (int row = n-1; row >= 0; row--) {
         tmp = b[row];
+        // Can compute tmp (dot product) parallel using a reduction to tmp
+        // Each thread needs its own col but otherwise all variables can be shared
+        // Could potentially add scheduling here as well (dyn) but I don't know how much that would improve
+
+        #pragma omp parallel for default(none) shared(A, x, n, row, tmp) private(col) reduction(+:tmp)
         for (int col = row+1; col < n; col++) {
             tmp += -A[row*n + col] * x[col];
         }
@@ -163,9 +179,19 @@ void back_substitution_row()
  */
 void back_substitution_column()
 {
+    // Each row is set to b[row], this is clearly parallelizable
+
+    #pragma omp parallel for default(none) shared(n, x, b)
     for (int row = 0; row < n; row++) {
         x[row] = b[row];
     }
+
+    // Updating the rows can be parallelized per column which would be more effective that row orientation for larger matrices
+    // HOWEVER it is a less cache efficient since the access pattern is column major and the matrices are stored row major, could lead to potential
+    // cache thrashing as different threads try to access x[row] at the same time
+    // n, x (solution vector), and A(coeff mat) all need to be share along with col, however each thread needs their own row
+
+    #pragma omp parallel for default(none) shared(n, x, A, col) private(row)
     for (int col = n-1; col >= 0; col--) {
         x[col] /= A[col*n + col];
         for (int row = 0; row < col; row++) {
