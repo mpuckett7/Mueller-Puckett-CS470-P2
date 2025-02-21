@@ -20,7 +20,7 @@
 #include "timer.h"
 
 // uncomment this line to enable the alternative back substitution method
-/*#define USE_COLUMN_BACKSUB*/
+// #define USE_COLUMN_BACKSUB
 
 // use 64-bit IEEE arithmetic (change to "float" to use 32-bit arithmetic)
 #define REAL double
@@ -154,14 +154,12 @@ void gaussian_elimination()
         // Since the coefficient computation and updating the matrix is independent from other rows parallel for works here
         // Each thread needs to be working on their own row, coeff, and col but they all need to be able to access
         // the matrix A, row b?, the pivot col, and n
-        int row, col;
-        REAL coeff;
-#pragma omp parallel for default(none) shared(A, b, n, pivot) private(row, coeff, col) schedule(dynamic, 4)
-        for (row = pivot + 1; row < n; row++)
+#pragma omp parallel for default(none) shared(A, b, n, pivot) schedule(dynamic, 4)
+        for (int row = pivot + 1; row < n; row++)
         {
-            coeff = A[row * n + pivot] / A[pivot * n + pivot];
+            REAL coeff = A[row * n + pivot] / A[pivot * n + pivot];
             A[row * n + pivot] = 0.0;
-            for (col = pivot + 1; col < n; col++)
+            for (int col = pivot + 1; col < n; col++)
             {
                 A[row * n + col] -= A[pivot * n + col] * coeff;
             }
@@ -214,11 +212,12 @@ void back_substitution_column()
     // cache thrashing as different threads try to access x[row] at the same time
     // n, x (solution vector), and A(coeff mat) all need to be share along with col, however each thread needs their own row
 
-    // #pragma omp parallel for // default(none) shared(n, x, A, col) private(row)
-    for (int col = n - 1; col >= 0; col--)
+    int row, col;
+    #pragma omp parallel for default(none) shared(n, x, A, col) private(row)
+    for (col = n - 1; col >= 0; col--)
     {
         x[col] /= A[col * n + col];
-        for (int row = 0; row < col; row++)
+        for (row = 0; row < col; row++)
         {
             x[row] += -A[row * n + col] * x[col];
         }
