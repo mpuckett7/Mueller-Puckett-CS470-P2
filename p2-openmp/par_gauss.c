@@ -43,12 +43,13 @@ bool triangular_mode = false;
 void rand_system()
 {
     // allocate space for matrices
-    A = (REAL*)calloc(n*n, sizeof(REAL));
-    b = (REAL*)calloc(n,   sizeof(REAL));
-    x = (REAL*)calloc(n,   sizeof(REAL));
+    A = (REAL *)calloc(n * n, sizeof(REAL));
+    b = (REAL *)calloc(n, sizeof(REAL));
+    x = (REAL *)calloc(n, sizeof(REAL));
 
     // verify that memory allocation succeeded
-    if (A == NULL || b == NULL || x == NULL) {
+    if (A == NULL || b == NULL || x == NULL)
+    {
         printf("Unable to allocate memory for linear system\n");
         exit(EXIT_FAILURE);
     }
@@ -58,23 +59,30 @@ void rand_system()
     unsigned long seed = 0;
 
     // generate random matrix entries
-    for (int row = 0; row < n; row++) {
+    for (int row = 0; row < n; row++)
+    {
         int col = triangular_mode ? row : 0;
-        for (; col < n; col++) {
-            if (row != col) {
-                seed = (1103515245*seed + 12345) % (1<<31);
-                A[row*n + col] = (REAL)seed / (REAL)ULONG_MAX;
-            } else {
-                A[row*n + col] = n/10.0;
+        for (; col < n; col++)
+        {
+            if (row != col)
+            {
+                seed = (1103515245 * seed + 12345) % (1 << 31);
+                A[row * n + col] = (REAL)seed / (REAL)ULONG_MAX;
+            }
+            else
+            {
+                A[row * n + col] = n / 10.0;
             }
         }
     }
 
     // generate right-hand side such that the solution matrix is all 1s
-    for (int row = 0; row < n; row++) {
+    for (int row = 0; row < n; row++)
+    {
         b[row] = 0.0;
-        for (int col = 0; col < n; col++) {
-            b[row] += A[row*n + col] * 1.0;
+        for (int col = 0; col < n; col++)
+        {
+            b[row] += A[row * n + col] * 1.0;
         }
     }
 }
@@ -86,40 +94,47 @@ void rand_system()
 void read_system(const char *fn)
 {
     // open file and read matrix dimensions
-    FILE* fin = fopen(fn, "r");
-    if (fin == NULL) {
+    FILE *fin = fopen(fn, "r");
+    if (fin == NULL)
+    {
         printf("Unable to open file \"%s\"\n", fn);
         exit(EXIT_FAILURE);
     }
-    if (fscanf(fin, "%d\n", &n) != 1) {
+    if (fscanf(fin, "%d\n", &n) != 1)
+    {
         printf("Invalid matrix file format\n");
         exit(EXIT_FAILURE);
     }
 
     // allocate space for matrices
-    A = (REAL*)malloc(sizeof(REAL) * n*n);
-    b = (REAL*)malloc(sizeof(REAL) * n);
-    x = (REAL*)malloc(sizeof(REAL) * n);
+    A = (REAL *)malloc(sizeof(REAL) * n * n);
+    b = (REAL *)malloc(sizeof(REAL) * n);
+    x = (REAL *)malloc(sizeof(REAL) * n);
 
     // verify that memory allocation succeeded
-    if (A == NULL || b == NULL || x == NULL) {
+    if (A == NULL || b == NULL || x == NULL)
+    {
         printf("Unable to allocate memory for linear system\n");
         exit(EXIT_FAILURE);
     }
 
     // read all values
-    for (int row = 0; row < n; row++) {
-        for (int col = 0; col < n; col++) {
-            if (fscanf(fin, "%lf", &A[row*n + col]) != 1) {
+    for (int row = 0; row < n; row++)
+    {
+        for (int col = 0; col < n; col++)
+        {
+            if (fscanf(fin, "%lf", &A[row * n + col]) != 1)
+            {
                 printf("Invalid matrix file format\n");
                 exit(EXIT_FAILURE);
             }
         }
-        if (fscanf(fin, "%lf", &b[row]) != 1) {
+        if (fscanf(fin, "%lf", &b[row]) != 1)
+        {
             printf("Invalid matrix file format\n");
             exit(EXIT_FAILURE);
         }
-        x[row] = 0.0;     // initialize x while we're reading A and b
+        x[row] = 0.0; // initialize x while we're reading A and b
     }
     fclose(fin);
 }
@@ -132,18 +147,23 @@ void gaussian_elimination()
 {
     // Outer loop is pivot selection, ie iterating over each column
     // Inherently sequential since each step depends on last
-    for (int pivot = 0; pivot < n; pivot++) {
+    for (int pivot = 0; pivot < n; pivot++)
+    {
         // Loop in one indentation level iterates over the rows below the pivot
         // As pivot increases the remaining number of rows decreases, dynamic scheduling would allow for work load split, potentially specify block size (4?)
         // Since the coefficient computation and updating the matrix is independent from other rows parallel for works here
         // Each thread needs to be working on their own row, coeff, and col but they all need to be able to access
         // the matrix A, row b?, the pivot col, and n
-        #pragma omp parallel for default(none) shared(A, b, n, pivot) private(row, coeff, col) schedule(dynamic) 
-        for (int row = pivot+1; row < n; row++) {
-            REAL coeff = A[row*n + pivot] / A[pivot*n + pivot];
-            A[row*n + pivot] = 0.0;
-            for (int col = pivot+1; col < n; col++) {
-                A[row*n + col] -= A[pivot*n + col] * coeff;
+        int row, col;
+        REAL coeff;
+#pragma omp parallel for default(none) shared(A, b, n, pivot) private(row, coeff, col) schedule(dynamic, 4)
+        for (row = pivot + 1; row < n; row++)
+        {
+            coeff = A[row * n + pivot] / A[pivot * n + pivot];
+            A[row * n + pivot] = 0.0;
+            for (col = pivot + 1; col < n; col++)
+            {
+                A[row * n + col] -= A[pivot * n + col] * coeff;
             }
             b[row] -= b[pivot] * coeff;
         }
@@ -159,17 +179,19 @@ void back_substitution_row()
     REAL tmp;
     // The outer loop works its way up through the matrix and introduces a loop-carried dependency
     // Inherently sequential
-    for (int row = n-1; row >= 0; row--) {
+    for (int row = n - 1; row >= 0; row--)
+    {
         tmp = b[row];
         // Can compute tmp (dot product) parallel using a reduction to tmp
         // Each thread needs its own col but otherwise all variables can be shared
         // Could potentially add scheduling here as well (dyn) but I don't know how much that would improve
-
-        #pragma omp parallel for default(none) shared(A, x, n, row, tmp) private(col) reduction(+:tmp)
-        for (int col = row+1; col < n; col++) {
-            tmp += -A[row*n + col] * x[col];
+        int col;
+#pragma omp parallel for default(none) shared(A, x, n, row) private(col) reduction(+ : tmp)
+        for (col = row + 1; col < n; col++)
+        {
+            tmp += -A[row * n + col] * x[col];
         }
-        x[row] = tmp / A[row*n + row];
+        x[row] = tmp / A[row * n + row];
     }
 }
 
@@ -181,8 +203,9 @@ void back_substitution_column()
 {
     // Each row is set to b[row], this is clearly parallelizable
 
-    #pragma omp parallel for default(none) shared(n, x, b)
-    for (int row = 0; row < n; row++) {
+    // #pragma omp parallel for // default(none) shared(n, x, b)
+    for (int row = 0; row < n; row++)
+    {
         x[row] = b[row];
     }
 
@@ -191,11 +214,13 @@ void back_substitution_column()
     // cache thrashing as different threads try to access x[row] at the same time
     // n, x (solution vector), and A(coeff mat) all need to be share along with col, however each thread needs their own row
 
-    #pragma omp parallel for default(none) shared(n, x, A, col) private(row)
-    for (int col = n-1; col >= 0; col--) {
-        x[col] /= A[col*n + col];
-        for (int row = 0; row < col; row++) {
-            x[row] += -A[row*n + col] * x[col];
+    // #pragma omp parallel for // default(none) shared(n, x, A, col) private(row)
+    for (int col = n - 1; col >= 0; col--)
+    {
+        x[col] /= A[col * n + col];
+        for (int row = 0; row < col; row++)
+        {
+            x[row] += -A[row * n + col] * x[col];
         }
     }
 }
@@ -207,9 +232,11 @@ void back_substitution_column()
 REAL find_max_error()
 {
     REAL error = 0.0, tmp;
-    for (int row = 0; row < n; row++) {
+    for (int row = 0; row < n; row++)
+    {
         tmp = fabs(x[row] - 1.0);
-        if (tmp > error) {
+        if (tmp > error)
+        {
             error = tmp;
         }
     }
@@ -221,9 +248,11 @@ REAL find_max_error()
  */
 void print_matrix(REAL *mat, int rows, int cols)
 {
-    for (int row = 0; row < rows; row++) {
-        for (int col = 0; col < cols; col++) {
-            printf("%8.1e ", mat[row*cols + col]);
+    for (int row = 0; row < rows; row++)
+    {
+        for (int col = 0; col < cols; col++)
+        {
+            printf("%8.1e ", mat[row * cols + col]);
         }
         printf("\n");
     }
@@ -233,8 +262,10 @@ int main(int argc, char *argv[])
 {
     // check and parse command line options
     int c;
-    while ((c = getopt(argc, argv, "dt")) != -1) {
-        switch (c) {
+    while ((c = getopt(argc, argv, "dt")) != -1)
+    {
+        switch (c)
+        {
         case 'd':
             debug_mode = true;
             break;
@@ -246,7 +277,8 @@ int main(int argc, char *argv[])
             exit(EXIT_FAILURE);
         }
     }
-    if (optind != argc-1) {
+    if (optind != argc - 1)
+    {
         printf("Usage: %s [-dt] <file|size>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -254,15 +286,19 @@ int main(int argc, char *argv[])
     // read or generate linear system
     long int size = strtol(argv[optind], NULL, 10);
     START_TIMER(init)
-    if (size == 0) {
+    if (size == 0)
+    {
         read_system(argv[optind]);
-    } else {
+    }
+    else
+    {
         n = (int)size;
         rand_system();
     }
     STOP_TIMER(init)
 
-    if (debug_mode) {
+    if (debug_mode)
+    {
         printf("Original A = \n");
         print_matrix(A, n, n);
         printf("Original b = \n");
@@ -271,21 +307,23 @@ int main(int argc, char *argv[])
 
     // perform gaussian elimination
     START_TIMER(gaus)
-    if (!triangular_mode) {
+    if (!triangular_mode)
+    {
         gaussian_elimination();
     }
     STOP_TIMER(gaus)
 
     // perform backwards substitution
     START_TIMER(bsub)
-#   ifndef USE_COLUMN_BACKSUB
+#ifndef USE_COLUMN_BACKSUB
     back_substitution_row();
-#   else
+#else
     back_substitution_column();
-#   endif
+#endif
     STOP_TIMER(bsub)
 
-    if (debug_mode) {
+    if (debug_mode)
+    {
         printf("Triangular A = \n");
         print_matrix(A, n, n);
         printf("Updated b = \n");
@@ -296,8 +334,8 @@ int main(int argc, char *argv[])
 
     // print results
     printf("Nthreads=%2d  ERR=%8.1e  INIT: %8.4fs  GAUS: %8.4fs  BSUB: %8.4fs\n",
-            1, find_max_error(),
-            GET_TIMER(init), GET_TIMER(gaus), GET_TIMER(bsub));
+           1, find_max_error(),
+           GET_TIMER(init), GET_TIMER(gaus), GET_TIMER(bsub));
 
     // clean up and exit
     free(A);
@@ -305,4 +343,3 @@ int main(int argc, char *argv[])
     free(x);
     return EXIT_SUCCESS;
 }
-
