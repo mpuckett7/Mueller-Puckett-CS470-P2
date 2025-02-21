@@ -20,7 +20,7 @@
 #include "timer.h"
 
 // uncomment this line to enable the alternative back substitution method
-// #define USE_COLUMN_BACKSUB
+#define USE_COLUMN_BACKSUB
 
 // use 64-bit IEEE arithmetic (change to "float" to use 32-bit arithmetic)
 #define REAL double
@@ -36,6 +36,9 @@ bool debug_mode = false;
 
 // enable/disable triangular mode (to skip the Gaussian elimination phase)
 bool triangular_mode = false;
+
+//number of threads
+int num_threads;
 
 /*
  * Generate a random linear system of size n.
@@ -154,7 +157,7 @@ void gaussian_elimination()
         // Since the coefficient computation and updating the matrix is independent from other rows parallel for works here
         // Each thread needs to be working on their own row, coeff, and col but they all need to be able to access
         // the matrix A, row b?, the pivot col, and n
-#pragma omp parallel for default(none) shared(A, b, n, pivot) schedule(dynamic, 4)
+#pragma omp parallel for default(none) shared(A, b, n, pivot)
         for (int row = pivot + 1; row < n; row++)
         {
             REAL coeff = A[row * n + pivot] / A[pivot * n + pivot];
@@ -174,18 +177,16 @@ void gaussian_elimination()
  */
 void back_substitution_row()
 {
-    REAL tmp;
+    //REAL tmp;
     // The outer loop works its way up through the matrix and introduces a loop-carried dependency
     // Inherently sequential
+    #pragma omp parallel
     for (int row = n - 1; row >= 0; row--)
     {
-        tmp = b[row];
+        REAL tmp = b[row];
         // Can compute tmp (dot product) parallel using a reduction to tmp
         // Each thread needs its own col but otherwise all variables can be shared
-        // Could potentially add scheduling here as well (dyn) but I don't know how much that would improve
-        int col;
-#pragma omp parallel for default(none) shared(A, x, n, row) private(col) reduction(+ : tmp)
-        for (col = row + 1; col < n; col++)
+        for (int col = row + 1; col < n; col++)
         {
             tmp += -A[row * n + col] * x[col];
         }
@@ -200,8 +201,9 @@ void back_substitution_row()
 void back_substitution_column()
 {
     // Each row is set to b[row], this is clearly parallelizable
+    #pragma omp parallel
 
-    // #pragma omp parallel for // default(none) shared(n, x, b)
+    //#pragma omp parallel for default(none) shared(n, x, b)
     for (int row = 0; row < n; row++)
     {
         x[row] = b[row];
@@ -212,12 +214,12 @@ void back_substitution_column()
     // cache thrashing as different threads try to access x[row] at the same time
     // n, x (solution vector), and A(coeff mat) all need to be share along with col, however each thread needs their own row
 
-    int row, col;
-    #pragma omp parallel for default(none) shared(n, x, A, col) private(row)
-    for (col = n - 1; col >= 0; col--)
+    //int row, col;
+    for (int col = n - 1; col >= 0; col--)
     {
         x[col] /= A[col * n + col];
-        for (row = 0; row < col; row++)
+        //#pragma omp parallel for default(none) shared(n, A, x, col) 
+        for (int row = 0; row < col; row++)
         {
             x[row] += -A[row * n + col] * x[col];
         }
@@ -332,9 +334,15 @@ int main(int argc, char *argv[])
     }
 
     // print results
+    #ifdef _OPENMP 
+    printf("Nthreads=%2d  ERR=%8.1e  INIT: %8.4fs  GAUS: %8.4fs  BSUB: %8.4fs\n",
+           omp_get_max_threads(), find_max_error(),
+           GET_TIMER(init), GET_TIMER(gaus), GET_TIMER(bsub));
+    #else
     printf("Nthreads=%2d  ERR=%8.1e  INIT: %8.4fs  GAUS: %8.4fs  BSUB: %8.4fs\n",
            1, find_max_error(),
            GET_TIMER(init), GET_TIMER(gaus), GET_TIMER(bsub));
+    #endif
 
     // clean up and exit
     free(A);
